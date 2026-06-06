@@ -203,5 +203,10 @@
 <div class="toast" id="toast"></div>
 
 <script src="/static/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+}
+</script>
 </body>
 </html>

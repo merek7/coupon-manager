@@ -54,6 +54,11 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
+@app.route('/sw.js')
+def service_worker():
+    return send_from_directory('static', 'sw.js', mimetype='application/javascript')
+
+
 # ── IMPORT PDF (admin) ────────────────────────────────────────────────────────
 
 @app.route('/api/import', methods=['POST'])
