@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icône fond -->
+  <rect x="0" y="8" width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- dot -->
+  <circle cx="32" cy="52" r="4" fill="white"/>
+  <!-- arc 1 -->
+  <path d="M22,43 A13,13 0 0,1 42,43"
+        fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- arc 2 -->
+  <path d="M13,34 A26,26 0 0,1 51,34"
+        fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round" opacity="0.75"/>
+  <!-- arc 3 -->
+  <path d="M4,25 A40,40 0 0,1 60,25"
+        fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round" opacity="0.42"/>
+
+  <!-- Texte LINKS -->
+  <text x="80" y="36"
+        font-family="'Segoe UI', system-ui, sans-serif"
+        font-size="22" font-weight="800"
+        fill="#1e293b"
+        letter-spacing="1">LINKS</text>
+
+  <!-- Texte WIRELESS -->
+  <text x="80" y="58"
+        font-family="'Segoe UI', system-ui, sans-serif"
+        font-size="16" font-weight="600"
+        fill="#4f46e5"
+        letter-spacing="2.5">WIRELESS</text>
+
+  <!-- Sous-titre -->
+  <text x="80" y="73"
+        font-family="'Segoe UI', system-ui, sans-serif"
+        font-size="9" font-weight="400"
+        fill="#94a3b8"
+        letter-spacing="1">GESTION COUPONS WiFi</text>
+</svg>
