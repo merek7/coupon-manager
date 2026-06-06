@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4f46e5">
+<title>LINKS WIRELESS — Coupons</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/static/manifest.json">
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">📶</div>
+  <div class="header-brand">
+    <h1>LINKS <span>WIRELESS</span></h1>
+    <small>Gestion des coupons WiFi</small>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+      + Importer PDF
+    </button>
+    <button class="btn btn-outline" onclick="exportRestants()">
+      Exporter restants
+    </button>
+    <button class="btn btn-danger" onclick="clearAll()">
+      Vider
+    </button>
+  </div>
+</header>
+
+<input type="file" id="fileInput" accept=".pdf" onchange="handleFileInput(event)">
+
+<div class="container">
+
+  <!-- UPLOAD ZONE -->
+  <div class="upload-zone" id="uploadZone"
+       onclick="document.getElementById('fileInput').click()"
+       ondragover="onDragOver(event)"
+       ondragleave="onDragLeave(event)"
+       ondrop="onDrop(event)">
+    <div class="upload-icon">📄</div>
+    <div class="upload-title">Glisser le PDF de coupons ici</div>
+    <div class="upload-sub">ou cliquer pour sélectionner — export PDF de User Manager</div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loadingDiv">
+    <div class="spinner"></div>
+    <div>Import en cours...</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div id="mainContent">
+
+    <!-- STATS GLOBALES -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total coupons</div>
+        <div class="stat-value c-blue"   id="sTotal">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Restants</div>
+        <div class="stat-value c-green"  id="sRestants">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Vendus</div>
+        <div class="stat-value c-red"    id="sVendus">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Montant restant</div>
+        <div class="stat-value c-orange" id="sMontant">0 F</div>
+      </div>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="progress-wrap">
+      <div class="progress-labels">
+        <span>Progression des ventes</span>
+        <span id="progressText">0 / 0</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- ONGLETS PROFILS -->
+    <div class="profile-tabs-wrap">
+      <div class="profile-tabs" id="profileTabs"></div>
+      <div class="profile-stats" id="profileStats"></div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+      <input type="text" class="search-input" id="searchInput"
+             placeholder="Rechercher un coupon (code, profil)…"
+             oninput="loadCoupons()">
+      <div class="filter-tabs">
+        <button class="ftab active" onclick="setFilter('', this)">Tous</button>
+        <button class="ftab"        onclick="setFilter('0', this)">Restants</button>
+        <button class="ftab"        onclick="setFilter('1', this)">Vendus</button>
+      </div>
+    </div>
+
+    <!-- GRID -->
+    <div class="coupon-grid" id="couponGrid"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">
+      <div class="icon">🔍</div>
+      <div>Aucun coupon correspondant</div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
