@@ -278,11 +278,11 @@ function renderGrid(list) {
   }
   empty.style.display = 'none';
 
-  // Les cartes sont cliquables seulement si admin
+  // Les cartes sont cliquables par tout le monde
   grid.innerHTML = list.map((c, i) => `
-    <div class="coupon-card ${c.vendu ? 'vendu' : ''} ${!isAdmin ? 'readonly' : ''}"
+    <div class="coupon-card ${c.vendu ? 'vendu' : ''}"
          style="animation-delay:${Math.min(i * 18, 180)}ms"
-         ${isAdmin ? `onclick='openModal(${JSON.stringify(c)})'` : ''}>
+         onclick='openModal(${JSON.stringify(c)})'>
       <div class="card-top">
         <span class="forfait-pill">${c.forfait}</span>
         <span class="status-pill ${c.vendu ? 'vendu' : 'dispo'}">
@@ -299,7 +299,6 @@ function renderGrid(list) {
 
 // ── MODAL COUPON ──────────────────────────────────────────────────────────────
 function openModal(coupon) {
-  if (!isAdmin) return;
   modalCoupon = coupon;
 
   document.getElementById('mForfait').textContent = coupon.forfait;
@@ -355,7 +354,7 @@ function handleOverlayClick(e) {
 }
 
 async function confirmToggle() {
-  if (!modalCoupon || !isAdmin) return;
+  if (!modalCoupon) return;
   const newVendu = !modalCoupon.vendu;
   const res = await fetch(`/api/coupons/${modalCoupon.id}`, {
     method: 'PATCH',

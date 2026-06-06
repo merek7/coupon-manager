@@ -1,6 +1,9 @@
 import os
 from functools import wraps
 
+from dotenv import load_dotenv
+load_dotenv()  # charge .env en dev, sans effet en prod Docker
+
 from flask import Flask, jsonify, request, send_from_directory, Response, session
 
 import database as db
@@ -88,7 +91,6 @@ def list_coupons():
 
 
 @app.route('/api/coupons/<coupon_id>', methods=['PATCH'])
-@admin_required
 def patch_coupon(coupon_id):
     body  = request.get_json(silent=True) or {}
     vendu = bool(body.get('vendu', False))
