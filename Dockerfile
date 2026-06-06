@@ -14,4 +14,4 @@ EXPOSE 5076
 ENV DATABASE_PATH=/data/coupons.db \
     PORT=5076
 
-CMD ["python", "app.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5076", "--workers", "2", "--timeout", "120", "app:app"]
