@@ -1,15 +1,20 @@
 // ── STATE ────────────────────────────────────────────────────────────────────
+let isAdmin       = false;
 let activeProfile = '';
 let activeVendu   = '';
-let lastList      = [];   // liste courante pour le tri côté client
+let lastList      = [];
 let modalCoupon   = null;
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  loadStats();
-  loadCoupons();
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-  setupSwipeClose();
+window.addEventListener('DOMContentLoaded', async () => {
+  await checkAuth();
+  await loadStats();
+  await loadCoupons();
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closeLoginModal(); }
+  });
+  setupSwipeClose('modalSheet',  closeModal);
+  setupSwipeClose('loginSheet',  closeLoginModal);
 });
 
 // ── DEBOUNCE ─────────────────────────────────────────────────────────────────
@@ -18,6 +23,82 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 const debouncedLoad = debounce(loadCoupons, 300);
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const res  = await fetch('/api/me');
+    const data = await res.json();
+    isAdmin = !!data.is_admin;
+  } catch { isAdmin = false; }
+  updateAdminUI();
+}
+
+function updateAdminUI() {
+  // Admin-only elements
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.classList.toggle('hidden', !isAdmin);
+  });
+  // Auth buttons
+  document.getElementById('btnLoginAdmin').classList.toggle('hidden', isAdmin);
+  const ctrl = document.getElementById('adminControls');
+  ctrl.classList.toggle('hidden', !isAdmin);
+  if (!isAdmin) ctrl.style.display = '';
+  else ctrl.style.display = 'flex';
+
+  // Upload zone : montrer si admin et aucun coupon, sinon cacher
+  if (isAdmin) checkEmpty_admin();
+}
+
+function checkEmpty_admin() {
+  // appelé après update stats : uploadZone géré par checkEmpty()
+}
+
+// ── LOGIN MODAL ───────────────────────────────────────────────────────────────
+function openLoginModal() {
+  document.getElementById('loginOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('loginInput').focus(), 300);
+}
+function closeLoginModal() {
+  document.getElementById('loginOverlay').classList.remove('open');
+  document.getElementById('loginInput').value = '';
+  document.body.style.overflow = '';
+}
+function handleLoginOverlayClick(e) {
+  if (e.target === document.getElementById('loginOverlay')) closeLoginModal();
+}
+
+async function submitLogin() {
+  const pwd = document.getElementById('loginInput').value;
+  if (!pwd) return;
+  const res  = await fetch('/api/login', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ password: pwd }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    isAdmin = true;
+    updateAdminUI();
+    closeLoginModal();
+    toast('Connecté en tant qu\'admin');
+    checkEmptyForAdmin();
+  } else {
+    toast(data.error || 'Mot de passe incorrect', 'error');
+    document.getElementById('loginInput').value = '';
+    document.getElementById('loginInput').focus();
+  }
+}
+
+async function logoutAdmin() {
+  await fetch('/api/logout', { method: 'POST' });
+  isAdmin = false;
+  updateAdminUI();
+  toast('Déconnecté');
+  // Re-render cards en lecture seule
+  renderGrid(lastList);
+}
 
 // ── FILE UPLOAD ───────────────────────────────────────────────────────────────
 function handleFileInput(e) {
@@ -45,7 +126,6 @@ async function uploadPDF(file) {
     toast(`${data.added} coupon(s) importé(s)${data.skipped ? ` · ${data.skipped} doublon(s)` : ''}`);
     await loadStats();
     await loadCoupons();
-    showMain();
   } catch(e) {
     toast('Erreur réseau : ' + e.message, 'error');
   } finally {
@@ -54,17 +134,25 @@ async function uploadPDF(file) {
 }
 
 // ── SHOW / HIDE ───────────────────────────────────────────────────────────────
-function showMain() {
-  document.getElementById('uploadZone').classList.add('hidden');
-  document.getElementById('mainContent').style.display = 'block';
-}
 function checkEmpty(total) {
-  if (total === 0) {
-    document.getElementById('uploadZone').classList.remove('hidden');
-    document.getElementById('mainContent').style.display = 'none';
+  const uploadZone   = document.getElementById('uploadZone');
+  const mainContent  = document.getElementById('mainContent');
+
+  if (total === 0 && isAdmin) {
+    uploadZone.classList.remove('hidden');
+    mainContent.style.display = 'none';
+  } else if (total === 0 && !isAdmin) {
+    // Pas admin + aucun coupon : afficher message vide
+    uploadZone.classList.add('hidden');
+    mainContent.style.display = 'block';
   } else {
-    showMain();
+    uploadZone.classList.add('hidden');
+    mainContent.style.display = 'block';
   }
+}
+
+function checkEmptyForAdmin() {
+  fetch('/api/stats').then(r => r.json()).then(d => checkEmpty(d.total));
 }
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
@@ -72,10 +160,10 @@ async function loadStats() {
   const res  = await fetch('/api/stats');
   const data = await res.json();
 
-  animateValue('sTotal',    data.total);
-  animateValue('sRestants', data.restants);
-  animateValue('sVendus',   data.vendus);
-  document.getElementById('sMontant').textContent =
+  document.getElementById('sTotal').textContent    = data.total;
+  document.getElementById('sRestants').textContent = data.restants;
+  document.getElementById('sVendus').textContent   = data.vendus;
+  document.getElementById('sMontant').textContent  =
     Number(data.montant_restant).toLocaleString('fr-FR') + ' F';
   document.getElementById('progressText').textContent = `${data.vendus} / ${data.total}`;
   document.getElementById('progressFill').style.width =
@@ -86,38 +174,30 @@ async function loadStats() {
   checkEmpty(data.total);
 }
 
-function animateValue(id, target) {
-  const el = document.getElementById(id);
-  el.textContent = target;
-}
-
 // ── ONGLETS PROFILS ───────────────────────────────────────────────────────────
 function buildProfileTabs(profiles) {
   const all = [{
     forfait: '',
-    total: profiles.reduce((s, p) => s + p.total, 0),
-    vendus: profiles.reduce((s, p) => s + p.vendus, 0),
+    total:           profiles.reduce((s, p) => s + p.total, 0),
+    vendus:          profiles.reduce((s, p) => s + p.vendus, 0),
     montant_restant: profiles.reduce((s, p) => s + p.montant_restant, 0),
   }, ...profiles];
 
-  document.getElementById('profileTabs').innerHTML = all.map(p => {
-    const restants = p.total - p.vendus;
-    return `
-      <button class="ptab ${p.forfait === activeProfile ? 'active' : ''}"
-              data-forfait="${p.forfait}"
-              onclick="switchProfile('${p.forfait}', this)">
-        ${p.forfait === '' ? 'Tous' : 'Forfait ' + p.forfait}
-        <span style="font-weight:400;opacity:.55;font-size:11px;margin-left:3px">(${restants})</span>
-      </button>`;
-  }).join('');
+  document.getElementById('profileTabs').innerHTML = all.map(p => `
+    <button class="ptab ${p.forfait === activeProfile ? 'active' : ''}"
+            data-forfait="${p.forfait}"
+            onclick="switchProfile('${p.forfait}', this)">
+      ${p.forfait === '' ? 'Tous' : 'Forfait ' + p.forfait}
+      <span style="font-weight:400;opacity:.55;font-size:11px;margin-left:3px">(${p.total - p.vendus})</span>
+    </button>`
+  ).join('');
 
   updateProfileStats(all.find(p => p.forfait === activeProfile) || all[0]);
 }
 
 function updateProfileStats(p) {
-  const restants = p.total - p.vendus;
   document.getElementById('profileStats').innerHTML = `
-    <div class="pstat"><span class="dot dot-green"></span>Restants : <strong>${restants}</strong></div>
+    <div class="pstat"><span class="dot dot-green"></span>Restants : <strong>${p.total - p.vendus}</strong></div>
     <div class="pstat"><span class="dot dot-red"></span>Vendus : <strong>${p.vendus}</strong></div>
     <div class="pstat"><span class="dot dot-orange"></span>Montant restant : <strong>${Number(p.montant_restant).toLocaleString('fr-FR')} FCFA</strong></div>
   `;
@@ -129,25 +209,20 @@ function switchProfile(forfait, el) {
   el.classList.add('active');
   loadCoupons();
   fetch('/api/stats').then(r => r.json()).then(data => {
-    const all = [{ forfait: '', total: 0, vendus: 0, montant_restant: 0 }, ...data.by_profile];
-    all[0].total           = data.by_profile.reduce((s, p) => s + p.total, 0);
-    all[0].vendus          = data.by_profile.reduce((s, p) => s + p.vendus, 0);
-    all[0].montant_restant = data.by_profile.reduce((s, p) => s + p.montant_restant, 0);
+    const all = [{ forfait:'', total:0, vendus:0, montant_restant:0 }, ...data.by_profile];
+    all[0].total           = data.by_profile.reduce((s,p) => s+p.total, 0);
+    all[0].vendus          = data.by_profile.reduce((s,p) => s+p.vendus, 0);
+    all[0].montant_restant = data.by_profile.reduce((s,p) => s+p.montant_restant, 0);
     updateProfileStats(all.find(p => p.forfait === forfait) || all[0]);
   });
 }
 
-// ── FILTER COUNTS ─────────────────────────────────────────────────────────────
 function updateFilterCounts(stats) {
-  const tabs = document.getElementById('filterTabs');
-  if (!tabs) return;
-  tabs.querySelectorAll('.ftab').forEach(btn => {
+  document.querySelectorAll('.ftab').forEach(btn => {
     const v = btn.dataset.vendu;
-    let count = '';
-    if (v === '')  count = stats.total;
-    if (v === '0') count = stats.restants;
-    if (v === '1') count = stats.vendus;
-    btn.textContent = (v === '' ? 'Tous' : v === '0' ? 'Restants' : 'Vendus') + ` (${count})`;
+    const count = v === '' ? stats.total : v === '0' ? stats.restants : stats.vendus;
+    const label = v === '' ? 'Tous' : v === '0' ? 'Restants' : 'Vendus';
+    btn.textContent = `${label} (${count})`;
   });
 }
 
@@ -159,29 +234,26 @@ async function loadCoupons() {
   if (activeProfile) params.set('forfait', activeProfile);
   if (activeVendu !== '') params.set('vendu', activeVendu);
   if (q) params.set('q', q);
-  const res  = await fetch('/api/coupons?' + params);
-  lastList   = await res.json();
+  const res = await fetch('/api/coupons?' + params);
+  lastList  = await res.json();
   applySortAndRender();
 }
 
 function showSkeleton() {
-  const grid = document.getElementById('couponGrid');
   document.getElementById('emptyState').style.display = 'none';
-  grid.innerHTML = Array(6).fill(`
+  document.getElementById('couponGrid').innerHTML = Array(6).fill(`
     <div class="skeleton-card">
       <div class="skel skel-row" style="width:80%;margin-bottom:12px"></div>
       <div class="skel skel-code"></div>
       <div class="skel skel-meta" style="margin-top:8px"></div>
       <div class="skel skel-price" style="margin-top:10px"></div>
-    </div>
-  `).join('');
+    </div>`).join('');
 }
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
 function applySortAndRender() {
   const sort = document.getElementById('sortSelect')?.value || 'default';
   let list = [...lastList];
-
   if (sort === 'code')        list.sort((a,b) => a.username.localeCompare(b.username));
   else if (sort === 'price_asc')  list.sort((a,b) => a.prix - b.prix);
   else if (sort === 'price_desc') list.sort((a,b) => b.prix - a.prix);
@@ -191,7 +263,6 @@ function applySortAndRender() {
     if (!b.date_vente) return -1;
     return b.date_vente.localeCompare(a.date_vente);
   });
-
   renderGrid(list);
 }
 
@@ -207,10 +278,11 @@ function renderGrid(list) {
   }
   empty.style.display = 'none';
 
+  // Les cartes sont cliquables seulement si admin
   grid.innerHTML = list.map((c, i) => `
-    <div class="coupon-card ${c.vendu ? 'vendu' : ''}"
-         style="animation-delay:${Math.min(i * 20, 200)}ms"
-         onclick='openModal(${JSON.stringify(c)})'>
+    <div class="coupon-card ${c.vendu ? 'vendu' : ''} ${!isAdmin ? 'readonly' : ''}"
+         style="animation-delay:${Math.min(i * 18, 180)}ms"
+         ${isAdmin ? `onclick='openModal(${JSON.stringify(c)})'` : ''}>
       <div class="card-top">
         <span class="forfait-pill">${c.forfait}</span>
         <span class="status-pill ${c.vendu ? 'vendu' : 'dispo'}">
@@ -220,25 +292,24 @@ function renderGrid(list) {
       <div class="card-code">${c.username}</div>
       <div class="card-meta">${c.temps} actif · validité ${c.validite}</div>
       <div class="card-price">${Number(c.prix).toLocaleString('fr-FR')} FCFA</div>
-      ${c.vendu && c.date_vente
-        ? `<div class="card-date">Vendu le ${c.date_vente}</div>`
-        : ''}
-    </div>
-  `).join('');
+      ${c.vendu && c.date_vente ? `<div class="card-date">Vendu le ${c.date_vente}</div>` : ''}
+    </div>`
+  ).join('');
 }
 
-// ── MODAL ─────────────────────────────────────────────────────────────────────
+// ── MODAL COUPON ──────────────────────────────────────────────────────────────
 function openModal(coupon) {
+  if (!isAdmin) return;
   modalCoupon = coupon;
 
   document.getElementById('mForfait').textContent = coupon.forfait;
-  document.getElementById('mCode').textContent = coupon.username;
-  document.getElementById('mPassword').innerHTML =
+  document.getElementById('mCode').textContent    = coupon.username;
+  document.getElementById('mPassword').innerHTML  =
     `Mot de passe : <span>${coupon.password}</span>`;
 
   const statusEl = document.getElementById('mStatus');
   statusEl.textContent = coupon.vendu ? 'VENDU' : 'DISPO';
-  statusEl.className = 'status-pill ' + (coupon.vendu ? 'vendu' : 'dispo');
+  statusEl.className   = 'status-pill ' + (coupon.vendu ? 'vendu' : 'dispo');
 
   document.getElementById('mDetails').innerHTML = `
     <div class="minfo-item">
@@ -252,8 +323,7 @@ function openModal(coupon) {
     <div class="minfo-item">
       <div class="minfo-label">Prix</div>
       <div class="minfo-value price">${Number(coupon.prix).toLocaleString('fr-FR')} F</div>
-    </div>
-  `;
+    </div>`;
 
   const dateWrap = document.getElementById('mDateWrap');
   if (coupon.vendu && coupon.date_vente) {
@@ -264,17 +334,11 @@ function openModal(coupon) {
   }
 
   const btnSell = document.getElementById('btnSell');
-  if (coupon.vendu) {
-    btnSell.textContent = 'Annuler la vente';
-    btnSell.className = 'btn btn-sell action-undo';
-  } else {
-    btnSell.textContent = 'Marquer comme vendu';
-    btnSell.className = 'btn btn-sell action-sell';
-  }
+  btnSell.textContent = coupon.vendu ? 'Annuler la vente' : 'Marquer comme vendu';
+  btnSell.className   = 'btn btn-sell ' + (coupon.vendu ? 'action-undo' : 'action-sell');
 
-  // Reset copy button
-  const btnCopy = document.getElementById('btnCopy');
-  btnCopy.classList.remove('copied');
+  // Reset copy
+  document.getElementById('btnCopy').classList.remove('copied');
   document.getElementById('btnCopyText').textContent = 'Copier le code';
 
   document.getElementById('modalOverlay').classList.add('open');
@@ -286,18 +350,17 @@ function closeModal() {
   document.body.style.overflow = '';
   modalCoupon = null;
 }
-
 function handleOverlayClick(e) {
   if (e.target === document.getElementById('modalOverlay')) closeModal();
 }
 
 async function confirmToggle() {
-  if (!modalCoupon) return;
+  if (!modalCoupon || !isAdmin) return;
   const newVendu = !modalCoupon.vendu;
   const res = await fetch(`/api/coupons/${modalCoupon.id}`, {
-    method:  'PATCH',
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ vendu: newVendu }),
+    body: JSON.stringify({ vendu: newVendu }),
   });
   if (!res.ok) return;
   closeModal();
@@ -317,22 +380,21 @@ async function copyCode() {
       btn.classList.remove('copied');
       document.getElementById('btnCopyText').textContent = 'Copier le code';
     }, 1800);
-  } catch {
-    toast('Copie non supportée sur ce navigateur', 'error');
-  }
+  } catch { toast('Copie non supportée', 'error'); }
 }
 
-// ── SWIPE DOWN TO CLOSE (mobile) ──────────────────────────────────────────────
-function setupSwipeClose() {
-  const sheet = document.getElementById('modalSheet');
+// ── SWIPE DOWN ────────────────────────────────────────────────────────────────
+function setupSwipeClose(sheetId, closeFn) {
+  const sheet = document.getElementById(sheetId);
+  if (!sheet) return;
   let startY = 0;
   sheet.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
   sheet.addEventListener('touchmove',  e => {
-    if (e.touches[0].clientY - startY > 90) closeModal();
+    if (e.touches[0].clientY - startY > 90) closeFn();
   }, { passive: true });
 }
 
-// ── FILTER & SORT ─────────────────────────────────────────────────────────────
+// ── FILTER ────────────────────────────────────────────────────────────────────
 function setFilter(vendu, el) {
   activeVendu = vendu;
   document.querySelectorAll('.ftab').forEach(t => t.classList.remove('active'));
@@ -342,6 +404,7 @@ function setFilter(vendu, el) {
 
 // ── ACTIONS GLOBALES ─────────────────────────────────────────────────────────
 async function clearAll() {
+  if (!isAdmin) return;
   const res  = await fetch('/api/stats');
   const data = await res.json();
   if (!data.total) return;
@@ -355,6 +418,7 @@ async function clearAll() {
 }
 
 function exportRestants() {
+  if (!isAdmin) return;
   const params = new URLSearchParams({ vendu: '0' });
   if (activeProfile) params.set('forfait', activeProfile);
   window.location.href = '/api/export?' + params;

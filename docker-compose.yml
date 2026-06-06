@@ -8,6 +8,8 @@ services:
     environment:
       - DATABASE_PATH=/data/coupons.db
       - PORT=5076
+      - SECRET_KEY=change-this-secret-key-in-production
+      - ADMIN_PASSWORD=changeme
     restart: unless-stopped
 
 volumes:

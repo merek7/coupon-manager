@@ -1,11 +1,48 @@
-import io
 import os
+from functools import wraps
 
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, jsonify, request, send_from_directory, Response, session
 
 import database as db
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+
+app.secret_key      = os.environ.get('SECRET_KEY', 'links-wireless-secret-changeme')
+ADMIN_PASSWORD      = os.environ.get('ADMIN_PASSWORD', '')
+
+
+# ── AUTH ──────────────────────────────────────────────────────────────────────
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('is_admin'):
+            return jsonify({'error': 'Non autorisé — connexion admin requise'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    if not ADMIN_PASSWORD:
+        return jsonify({'error': 'ADMIN_PASSWORD non configuré sur le serveur'}), 500
+    data = request.get_json(silent=True) or {}
+    if data.get('password') == ADMIN_PASSWORD:
+        session['is_admin'] = True
+        return jsonify({'ok': True})
+    return jsonify({'error': 'Mot de passe incorrect'}), 401
+
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/me')
+def me():
+    return jsonify({'is_admin': bool(session.get('is_admin'))})
+
 
 # ── FRONTEND ──────────────────────────────────────────────────────────────────
 
@@ -14,9 +51,10 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
-# ── IMPORT PDF ────────────────────────────────────────────────────────────────
+# ── IMPORT PDF (admin) ────────────────────────────────────────────────────────
 
 @app.route('/api/import', methods=['POST'])
+@admin_required
 def import_pdf():
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier envoyé'}), 400
@@ -43,13 +81,14 @@ def import_pdf():
 @app.route('/api/coupons', methods=['GET'])
 def list_coupons():
     forfait = request.args.get('forfait') or None
-    vendu   = request.args.get('vendu')          # "0" | "1" | None
+    vendu   = request.args.get('vendu') or None
     q       = request.args.get('q') or None
     rows = db.get_coupons(forfait=forfait, vendu=vendu, q=q)
     return jsonify(rows)
 
 
 @app.route('/api/coupons/<coupon_id>', methods=['PATCH'])
+@admin_required
 def patch_coupon(coupon_id):
     body  = request.get_json(silent=True) or {}
     vendu = bool(body.get('vendu', False))
@@ -60,12 +99,13 @@ def patch_coupon(coupon_id):
 
 
 @app.route('/api/coupons', methods=['DELETE'])
+@admin_required
 def delete_all():
     db.clear_all()
     return jsonify({'ok': True})
 
 
-# ── STATS ─────────────────────────────────────────────────────────────────────
+# ── STATS (public) ────────────────────────────────────────────────────────────
 
 @app.route('/api/stats')
 def stats():
@@ -77,9 +117,10 @@ def forfaits():
     return jsonify(db.get_forfaits())
 
 
-# ── EXPORT ────────────────────────────────────────────────────────────────────
+# ── EXPORT (admin) ────────────────────────────────────────────────────────────
 
 @app.route('/api/export')
+@admin_required
 def export():
     forfait = request.args.get('forfait') or None
     rows = db.get_coupons(forfait=forfait, vendu='0')
@@ -103,5 +144,5 @@ def export():
 
 if __name__ == '__main__':
     db.init_db()
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5076))
     app.run(host='0.0.0.0', port=port, debug=False)
