@@ -2,12 +2,12 @@ services:
   app:
     build: .
     ports:
-      - "5000:5000"
+      - "5076:5076"
     volumes:
       - coupon_data:/data
     environment:
       - DATABASE_PATH=/data/coupons.db
-      - PORT=5000
+      - PORT=5076
     restart: unless-stopped
 
 volumes:

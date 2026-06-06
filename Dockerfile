@@ -9,9 +9,9 @@ COPY . .
 
 RUN mkdir -p /data
 
-EXPOSE 5000
+EXPOSE 5076
 
 ENV DATABASE_PATH=/data/coupons.db \
-    PORT=5000
+    PORT=5076
 
 CMD ["python", "app.py"]

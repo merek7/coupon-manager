@@ -19,14 +19,14 @@
   </div>
   <div class="header-actions">
     <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
-      + Importer PDF
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Importer PDF
     </button>
     <button class="btn btn-outline" onclick="exportRestants()">
-      Exporter restants
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exporter
     </button>
-    <button class="btn btn-danger" onclick="clearAll()">
-      Vider
-    </button>
+    <button class="btn btn-danger" onclick="clearAll()">Vider</button>
   </div>
 </header>
 
@@ -45,7 +45,7 @@
     <div class="upload-sub">ou cliquer pour sélectionner — export PDF de User Manager</div>
   </div>
 
-  <!-- LOADING -->
+  <!-- LOADING IMPORT -->
   <div id="loadingDiv">
     <div class="spinner"></div>
     <div>Import en cours...</div>
@@ -57,20 +57,20 @@
     <!-- STATS GLOBALES -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Total coupons</div>
-        <div class="stat-value c-blue"   id="sTotal">0</div>
+        <div class="stat-label">Total</div>
+        <div class="stat-value c-blue" id="sTotal">—</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Restants</div>
-        <div class="stat-value c-green"  id="sRestants">0</div>
+        <div class="stat-value c-green" id="sRestants">—</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Vendus</div>
-        <div class="stat-value c-red"    id="sVendus">0</div>
+        <div class="stat-value c-red" id="sVendus">—</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Montant restant</div>
-        <div class="stat-value c-orange" id="sMontant">0 F</div>
+        <div class="stat-value c-orange" id="sMontant">—</div>
       </div>
     </div>
 
@@ -93,14 +93,24 @@
 
     <!-- CONTROLS -->
     <div class="controls">
-      <input type="text" class="search-input" id="searchInput"
-             placeholder="Rechercher un coupon (code, profil)…"
-             oninput="loadCoupons()">
-      <div class="filter-tabs">
-        <button class="ftab active" onclick="setFilter('', this)">Tous</button>
-        <button class="ftab"        onclick="setFilter('0', this)">Restants</button>
-        <button class="ftab"        onclick="setFilter('1', this)">Vendus</button>
+      <div class="search-wrap">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" class="search-input" id="searchInput"
+               placeholder="Rechercher un coupon…"
+               oninput="debouncedLoad()">
       </div>
+      <div class="filter-tabs" id="filterTabs">
+        <button class="ftab active" data-vendu="" onclick="setFilter('', this)">Tous</button>
+        <button class="ftab" data-vendu="0"  onclick="setFilter('0', this)">Restants</button>
+        <button class="ftab" data-vendu="1"  onclick="setFilter('1', this)">Vendus</button>
+      </div>
+      <select class="sort-select" id="sortSelect" onchange="applySortAndRender()">
+        <option value="default">Tri par défaut</option>
+        <option value="code">Code A → Z</option>
+        <option value="price_asc">Prix croissant</option>
+        <option value="price_desc">Prix décroissant</option>
+        <option value="date_desc">Vente récente</option>
+      </select>
     </div>
 
     <!-- GRID -->
@@ -112,6 +122,44 @@
 
   </div>
 
+</div>
+
+<!-- ── MODAL COUPON ── -->
+<div class="modal-overlay" id="modalOverlay" onclick="handleOverlayClick(event)">
+  <div class="modal-sheet" id="modalSheet">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div class="modal-pills">
+        <span class="forfait-pill" id="mForfait"></span>
+        <span class="status-pill" id="mStatus"></span>
+      </div>
+      <button class="modal-close" onclick="closeModal()" aria-label="Fermer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="modal-code-wrap">
+        <div class="modal-code" id="mCode"></div>
+        <div class="modal-password" id="mPassword"></div>
+      </div>
+
+      <button class="btn-copy" id="btnCopy" onclick="copyCode()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span id="btnCopyText">Copier le code</span>
+      </button>
+
+      <div class="modal-info-grid" id="mDetails"></div>
+      <div class="modal-date-wrap" id="mDateWrap" style="display:none;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Vendu le <strong id="mDate"></strong>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-sell" id="btnSell" onclick="confirmToggle()"></button>
+    </div>
+  </div>
 </div>
 
 <!-- TOAST -->
