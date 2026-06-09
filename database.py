@@ -33,9 +33,14 @@ def init_db():
                 password   TEXT,
                 vendu      INTEGER DEFAULT 0,
                 date_vente TEXT,
+                vendu_at   TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migration : ajoute vendu_at si la table existait déjà sans cette colonne
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(coupons)").fetchall()]
+        if 'vendu_at' not in cols:
+            conn.execute("ALTER TABLE coupons ADD COLUMN vendu_at TEXT")
         conn.commit()
 
 
@@ -108,11 +113,13 @@ def get_coupons(forfait: str = None, vendu: str = None, q: str = None) -> list[d
 
 
 def toggle_vendu(coupon_id: str, vendu: bool) -> dict | None:
-    date_vente = datetime.now().strftime('%d/%m/%Y') if vendu else None
+    now = datetime.now()
+    date_vente = now.strftime('%d/%m/%Y') if vendu else None
+    vendu_at   = now.isoformat(timespec='seconds') if vendu else None
     with get_db() as conn:
         conn.execute(
-            'UPDATE coupons SET vendu=?, date_vente=? WHERE id=?',
-            (int(vendu), date_vente, coupon_id),
+            'UPDATE coupons SET vendu=?, date_vente=?, vendu_at=? WHERE id=?',
+            (int(vendu), date_vente, vendu_at, coupon_id),
         )
         conn.commit()
         row = conn.execute('SELECT * FROM coupons WHERE id=?', (coupon_id,)).fetchone()
@@ -151,6 +158,29 @@ def clear_all():
     with get_db() as conn:
         conn.execute('DELETE FROM coupons')
         conn.commit()
+
+
+def get_sales_report(start_iso: str, end_iso: str) -> dict:
+    """Ventes dont vendu_at est dans [start_iso, end_iso). Retourne total, montant, détail par forfait."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) AS nb, COALESCE(SUM(prix),0) AS montant
+               FROM coupons
+               WHERE vendu=1 AND vendu_at >= ? AND vendu_at < ?""",
+            (start_iso, end_iso),
+        ).fetchone()
+        by_profile = conn.execute(
+            """SELECT forfait, COUNT(*) AS nb, COALESCE(SUM(prix),0) AS montant
+               FROM coupons
+               WHERE vendu=1 AND vendu_at >= ? AND vendu_at < ?
+               GROUP BY forfait ORDER BY forfait""",
+            (start_iso, end_iso),
+        ).fetchall()
+    return {
+        'nb':         row['nb'],
+        'montant':    row['montant'],
+        'by_profile': [dict(r) for r in by_profile],
+    }
 
 
 def get_forfaits() -> list[str]:

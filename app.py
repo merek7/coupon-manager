@@ -7,11 +7,17 @@ load_dotenv()  # charge .env en dev, sans effet en prod Docker
 from flask import Flask, jsonify, request, send_from_directory, Response, session
 
 import database as db
+import reports
+import scheduler
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 app.secret_key      = os.environ.get('SECRET_KEY', 'links-wireless-secret-changeme')
 ADMIN_PASSWORD      = os.environ.get('ADMIN_PASSWORD', '')
+
+# Init DB + scheduler dès l'import (gunicorn charge app:app, pas __main__)
+db.init_db()
+scheduler.start()
 
 
 # ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -147,9 +153,22 @@ def export():
     )
 
 
+# ── RAPPORTS (admin) ──────────────────────────────────────────────────────────
+
+@app.route('/api/report/test/<period>', methods=['POST'])
+@admin_required
+def report_test(period):
+    if period not in ('daily', 'weekly', 'monthly'):
+        return jsonify({'error': 'Période invalide'}), 400
+    try:
+        reports.send_report(period)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True, 'sent_to': reports.MAIL_TO})
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    db.init_db()
     port = int(os.environ.get('PORT', 5076))
     app.run(host='0.0.0.0', port=port, debug=False)
