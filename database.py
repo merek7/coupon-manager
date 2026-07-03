@@ -35,6 +35,7 @@ def init_db():
                 date_vente TEXT,
                 vendu_at   TEXT,
                 import_batch TEXT,
+                active     INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -44,6 +45,12 @@ def init_db():
             conn.execute("ALTER TABLE coupons ADD COLUMN vendu_at TEXT")
         if 'import_batch' not in cols:
             conn.execute("ALTER TABLE coupons ADD COLUMN import_batch TEXT")
+        if 'active' not in cols:
+            conn.execute("ALTER TABLE coupons ADD COLUMN active INTEGER DEFAULT 1")
+            # Coupons déjà archivés via l'ancienne méthode -> active=0
+            conn.execute(
+                "UPDATE coupons SET active=0 WHERE vendu=1 AND vendu_at IS NULL"
+            )
         # Backfill : rattache les anciens coupons à un lot = jour d'import
         conn.execute(
             "UPDATE coupons SET import_batch = substr(created_at,1,10) "
@@ -102,9 +109,16 @@ def insert_coupons(coupons: list[dict]) -> dict:
     return {'added': added, 'skipped': skipped, 'batch': batch}
 
 
-def get_coupons(forfait: str = None, vendu: str = None, q: str = None) -> list[dict]:
+# Un coupon "archivé" = hors du lot en cours (active=0) : ancien arrivage
+ARCHIVED_SQL = '(active = 0)'
+
+
+def get_coupons(forfait: str = None, vendu: str = None, q: str = None,
+                include_archived: bool = False) -> list[dict]:
     sql = 'SELECT * FROM coupons WHERE 1=1'
     params: list = []
+    if not include_archived:
+        sql += ' AND active = 1'
     if forfait:
         sql += ' AND forfait = ?'
         params.append(forfait)
@@ -118,7 +132,12 @@ def get_coupons(forfait: str = None, vendu: str = None, q: str = None) -> list[d
     sql += ' ORDER BY forfait, created_at'
     with get_db() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d['archived'] = not d['active']
+        out.append(d)
+    return out
 
 
 def toggle_vendu(coupon_id: str, vendu: bool) -> dict | None:
@@ -135,25 +154,30 @@ def toggle_vendu(coupon_id: str, vendu: bool) -> dict | None:
     return dict(row) if row else None
 
 
-def get_stats() -> dict:
+def get_stats(include_archived: bool = False) -> dict:
+    # Filtre : masque les archivés sauf pour l'admin
+    flt = '' if include_archived else f' WHERE NOT {ARCHIVED_SQL}'
+    grp_flt = '' if include_archived else f' AND NOT {ARCHIVED_SQL}'
     with get_db() as conn:
-        total   = conn.execute('SELECT COUNT(*) FROM coupons').fetchone()[0]
-        vendus  = conn.execute('SELECT COUNT(*) FROM coupons WHERE vendu=1').fetchone()[0]
+        total   = conn.execute(f'SELECT COUNT(*) FROM coupons{flt}').fetchone()[0]
+        vendus  = conn.execute(
+            f'SELECT COUNT(*) FROM coupons WHERE vendu=1{grp_flt}'
+        ).fetchone()[0]
         montant = conn.execute(
-            'SELECT COALESCE(SUM(prix),0) FROM coupons WHERE vendu=0'
+            f'SELECT COALESCE(SUM(prix),0) FROM coupons WHERE vendu=0{grp_flt}'
         ).fetchone()[0]
         montant_vendu = conn.execute(
-            'SELECT COALESCE(SUM(prix),0) FROM coupons WHERE vendu=1'
+            f'SELECT COALESCE(SUM(prix),0) FROM coupons WHERE vendu=1{grp_flt}'
         ).fetchone()[0]
 
         by_profile = []
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT forfait,
                    COUNT(*) as total,
                    SUM(vendu) as vendus,
                    SUM(CASE WHEN vendu=0 THEN prix ELSE 0 END) as montant_restant,
                    SUM(CASE WHEN vendu=1 THEN prix ELSE 0 END) as montant_vendu
-            FROM coupons GROUP BY forfait ORDER BY forfait
+            FROM coupons{flt} GROUP BY forfait ORDER BY forfait
         """).fetchall()
         for r in rows:
             by_profile.append(dict(r))
@@ -205,6 +229,7 @@ def get_batches() -> list[dict]:
                    COUNT(*)                                   AS total,
                    SUM(vendu)                                 AS vendus,
                    SUM(CASE WHEN vendu=0 THEN 1 ELSE 0 END)   AS restants,
+                   SUM(active)                                AS actifs,
                    SUM(CASE WHEN vendu=0 THEN prix ELSE 0 END) AS montant_restant,
                    GROUP_CONCAT(DISTINCT forfait)             AS forfaits
             FROM coupons
@@ -214,13 +239,21 @@ def get_batches() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def archive_batch(batch: str) -> int:
-    """Marque comme vendus (sans date de vente) les coupons restants d'un lot.
+def archive_active() -> int:
+    """Archive tout le lot en cours (le vendeur repart sur une ardoise vierge).
+    Utilisé lors d'un nouvel arrivage. Les ventes réelles restent dans les rapports.
     Retourne le nombre de coupons archivés."""
     with get_db() as conn:
+        cur = conn.execute("UPDATE coupons SET active=0 WHERE active=1")
+        conn.commit()
+        return cur.rowcount
+
+
+def archive_batch(batch: str) -> int:
+    """Sort un lot du stock en cours (active=0). Retourne le nombre de coupons concernés."""
+    with get_db() as conn:
         cur = conn.execute(
-            "UPDATE coupons SET vendu=1, date_vente='Archivé', vendu_at=NULL "
-            "WHERE import_batch=? AND vendu=0",
+            "UPDATE coupons SET active=0 WHERE import_batch=? AND active=1",
             (batch,),
         )
         conn.commit()

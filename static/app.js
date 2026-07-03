@@ -4,6 +4,8 @@ let activeProfile = '';
 let activeVendu   = '';
 let lastList      = [];
 let modalCoupon   = null;
+let importMode    = 'add';   // 'add' = lot en cours, 'new' = nouvel arrivage
+let pendingDrop   = null;    // fichier déposé en attente du choix d'import
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -11,11 +13,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadStats();
   await loadCoupons();
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeLoginModal(); closeBatchModal(); }
+    if (e.key === 'Escape') { closeModal(); closeLoginModal(); closeBatchModal(); closeImportModal(); }
   });
   setupSwipeClose('modalSheet',  closeModal);
   setupSwipeClose('loginSheet',  closeLoginModal);
   setupSwipeClose('batchSheet',  closeBatchModal);
+  setupSwipeClose('importSheet', closeImportModal);
 });
 
 // ── DEBOUNCE ─────────────────────────────────────────────────────────────────
@@ -101,6 +104,28 @@ async function logoutAdmin() {
   renderGrid(lastList);
 }
 
+// ── CHOIX D'IMPORT ────────────────────────────────────────────────────────────
+function openImportModal() {
+  if (!isAdmin) return;
+  pendingDrop = null;
+  document.getElementById('importOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeImportModal() {
+  document.getElementById('importOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function handleImportOverlayClick(e) {
+  if (e.target === document.getElementById('importOverlay')) closeImportModal();
+}
+// L'utilisateur a choisi le mode : soit on envoie le fichier déjà déposé, soit on ouvre le sélecteur
+function chooseImport(mode) {
+  importMode = mode;
+  closeImportModal();
+  if (pendingDrop) { const f = pendingDrop; pendingDrop = null; uploadPDF(f); }
+  else document.getElementById('fileInput').click();
+}
+
 // ── FILE UPLOAD ───────────────────────────────────────────────────────────────
 function handleFileInput(e) {
   const f = e.target.files[0];
@@ -113,24 +138,27 @@ function onDrop(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   const f = e.dataTransfer.files[0];
-  if (f) uploadPDF(f);
+  if (f) { pendingDrop = f; document.getElementById('importOverlay').classList.add('open'); document.body.style.overflow = 'hidden'; }
 }
 
 async function uploadPDF(file) {
   document.getElementById('loadingDiv').style.display = 'block';
   const fd = new FormData();
   fd.append('file', file);
+  fd.append('mode', importMode);
   try {
     const res  = await fetch('/api/import', { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) { toast(data.error || 'Erreur import', 'error'); return; }
-    toast(`${data.added} coupon(s) importé(s)${data.skipped ? ` · ${data.skipped} doublon(s)` : ''}`);
+    const archivedMsg = data.archived ? ` · ${data.archived} ancien(s) archivé(s)` : '';
+    toast(`${data.added} coupon(s) importé(s)${data.skipped ? ` · ${data.skipped} doublon(s)` : ''}${archivedMsg}`);
     await loadStats();
     await loadCoupons();
   } catch(e) {
     toast('Erreur réseau : ' + e.message, 'error');
   } finally {
     document.getElementById('loadingDiv').style.display = 'none';
+    importMode = 'add';   // réinitialise au mode par défaut
   }
 }
 
@@ -304,14 +332,18 @@ function renderGrid(list) {
          onclick='openModal(${JSON.stringify(c)})'>
       <div class="card-top">
         <span class="forfait-pill">${c.forfait}</span>
-        <span class="status-pill ${c.vendu ? 'vendu' : 'dispo'}">
-          ${c.vendu ? 'VENDU' : 'DISPO'}
+        <span class="status-pill ${c.archived ? 'archived' : c.vendu ? 'vendu' : 'dispo'}">
+          ${c.archived ? 'ARCHIVÉ' : c.vendu ? 'VENDU' : 'DISPO'}
         </span>
       </div>
       <div class="card-code">${c.username}</div>
       <div class="card-meta">${c.temps} actif · validité ${c.validite}</div>
       <div class="card-price">${Number(c.prix).toLocaleString('fr-FR')} FCFA</div>
-      ${c.vendu && c.date_vente ? `<div class="card-date">Vendu le ${c.date_vente}</div>` : ''}
+      <div class="card-foot">
+        ${c.import_batch ? `<span class="lot-badge">Lot ${lotLabel(c.import_batch)}</span>` : ''}
+        ${c.archived ? '<span class="card-date">Ancien stock</span>'
+          : (c.vendu && c.date_vente ? `<span class="card-date">Vendu le ${c.date_vente}</span>` : '')}
+      </div>
     </div>`
   ).join('');
 }
@@ -326,8 +358,8 @@ function openModal(coupon) {
     `Mot de passe : <span>${coupon.password}</span>`;
 
   const statusEl = document.getElementById('mStatus');
-  statusEl.textContent = coupon.vendu ? 'VENDU' : 'DISPO';
-  statusEl.className   = 'status-pill ' + (coupon.vendu ? 'vendu' : 'dispo');
+  statusEl.textContent = coupon.archived ? 'ARCHIVÉ' : coupon.vendu ? 'VENDU' : 'DISPO';
+  statusEl.className   = 'status-pill ' + (coupon.archived ? 'archived' : coupon.vendu ? 'vendu' : 'dispo');
 
   document.getElementById('mDetails').innerHTML = `
     <div class="minfo-item">
@@ -412,6 +444,13 @@ function setupSwipeClose(sheetId, closeFn) {
   }, { passive: true });
 }
 
+// ── LOT (libellé badge) ───────────────────────────────────────────────────────
+function lotLabel(batch) {
+  const d = new Date(batch);
+  if (isNaN(d)) return batch;
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
 // ── SEARCH ────────────────────────────────────────────────────────────────────
 function onSearchInput() {
   const val = document.getElementById('searchInput').value;
@@ -493,7 +532,7 @@ async function loadBatches() {
   list.innerHTML = data.map(b => `
     <div class="batch-item">
       <div class="batch-head">
-        <div class="batch-date">${fmtBatch(b.batch)}</div>
+        <div class="batch-date">${fmtBatch(b.batch)} ${b.actifs ? '<span class="lot-badge">en cours</span>' : '<span class="status-pill archived">archivé</span>'}</div>
         <div class="batch-forfaits">${b.forfaits || ''}</div>
       </div>
       <div class="batch-stats">
@@ -502,16 +541,16 @@ async function loadBatches() {
         <span class="c-red"><strong>${b.vendus}</strong> vendus</span>
       </div>
       <div class="batch-actions">
-        <button class="btn btn-outline btn-sm" onclick="archiveBatch('${b.batch}', ${b.restants})"
-                ${b.restants ? '' : 'disabled'}>Archiver les restants</button>
+        <button class="btn btn-outline btn-sm" onclick="archiveBatch('${b.batch}', ${b.actifs})"
+                ${b.actifs ? '' : 'disabled'}>Archiver le lot</button>
         <button class="btn btn-danger btn-sm" onclick="deleteBatch('${b.batch}', ${b.total})">Supprimer</button>
       </div>
     </div>`).join('');
 }
 
-async function archiveBatch(batch, restants) {
-  if (!restants) return;
-  if (!confirm(`Marquer les ${restants} coupon(s) restants de ce lot comme vendus ?\nIls sortiront des « restants » sans apparaître dans les rapports.`)) return;
+async function archiveBatch(batch, actifs) {
+  if (!actifs) return;
+  if (!confirm(`Sortir ce lot du stock en cours ?\nLes ${actifs} coupon(s) actifs ne seront plus visibles par les vendeurs (les ventes déjà enregistrées restent dans les rapports).`)) return;
   const res  = await fetch(`/api/batches/${encodeURIComponent(batch)}/archive`, { method: 'POST' });
   const data = await res.json();
   if (!res.ok) { toast(data.error || 'Erreur', 'error'); return; }

@@ -86,8 +86,13 @@ def import_pdf():
     if not coupons:
         return jsonify({'error': 'Aucun coupon trouvé dans ce PDF'}), 422
 
+    # mode 'new' = nouvel arrivage : on archive l'ancien stock avant d'insérer
+    archived = 0
+    if request.form.get('mode') == 'new':
+        archived = db.archive_active()
+
     result = db.insert_coupons(coupons)
-    return jsonify({'parsed': len(coupons), **result}), 200
+    return jsonify({'parsed': len(coupons), 'archived': archived, **result}), 200
 
 
 # ── COUPONS ───────────────────────────────────────────────────────────────────
@@ -97,7 +102,9 @@ def list_coupons():
     forfait = request.args.get('forfait') or None
     vendu   = request.args.get('vendu') or None
     q       = request.args.get('q') or None
-    rows = db.get_coupons(forfait=forfait, vendu=vendu, q=q)
+    is_admin = bool(session.get('is_admin'))
+    rows = db.get_coupons(forfait=forfait, vendu=vendu, q=q,
+                          include_archived=is_admin)
     return jsonify(rows)
 
 
@@ -144,7 +151,7 @@ def delete_batch_route(batch):
 
 @app.route('/api/stats')
 def stats():
-    return jsonify(db.get_stats())
+    return jsonify(db.get_stats(include_archived=bool(session.get('is_admin'))))
 
 
 @app.route('/api/forfaits')

@@ -26,7 +26,7 @@
 
     <!-- Boutons admin uniquement -->
     <button class="btn btn-primary admin-only hidden" id="btnImport"
-            onclick="document.getElementById('fileInput').click()">
+            onclick="openImportModal()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Importer PDF
     </button>
@@ -61,7 +61,7 @@
 
   <!-- UPLOAD ZONE (admin only) -->
   <div class="upload-zone admin-only hidden" id="uploadZone"
-       onclick="document.getElementById('fileInput').click()"
+       onclick="openImportModal()"
        ondragover="onDragOver(event)"
        ondragleave="onDragLeave(event)"
        ondrop="onDrop(event)">
@@ -205,6 +205,30 @@
              placeholder="Mot de passe"
              onkeydown="if(event.key==='Enter') submitLogin()">
       <button class="btn-login" onclick="submitLogin()">Se connecter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL CHOIX D'IMPORT ── -->
+<div class="modal-overlay" id="importOverlay" onclick="handleImportOverlayClick(event)">
+  <div class="modal-sheet" id="importSheet">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div style="font-size:15px;font-weight:700;color:var(--text)">Importer un PDF</div>
+      <button class="modal-close" onclick="closeImportModal()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="login-desc">Comment veux-tu ajouter ce PDF ?</p>
+      <button class="import-choice" onclick="chooseImport('add')">
+        <div class="import-choice-title">Ajouter au lot en cours</div>
+        <div class="import-choice-desc">Ex. tu ajoutes le forfait 200 après le 100 — même arrivage.</div>
+      </button>
+      <button class="import-choice import-choice-new" onclick="chooseImport('new')">
+        <div class="import-choice-title">Nouvel arrivage</div>
+        <div class="import-choice-desc">L'ancien stock est fini → il sera archivé, ce PDF devient le nouveau stock.</div>
+      </button>
     </div>
   </div>
 </div>
