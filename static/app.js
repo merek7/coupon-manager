@@ -11,10 +11,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadStats();
   await loadCoupons();
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeLoginModal(); }
+    if (e.key === 'Escape') { closeModal(); closeLoginModal(); closeBatchModal(); }
   });
   setupSwipeClose('modalSheet',  closeModal);
   setupSwipeClose('loginSheet',  closeLoginModal);
+  setupSwipeClose('batchSheet',  closeBatchModal);
 });
 
 // ── DEBOUNCE ─────────────────────────────────────────────────────────────────
@@ -181,7 +182,10 @@ function buildProfileTabs(profiles) {
     total:           profiles.reduce((s, p) => s + p.total, 0),
     vendus:          profiles.reduce((s, p) => s + p.vendus, 0),
     montant_restant: profiles.reduce((s, p) => s + p.montant_restant, 0),
+    montant_vendu:   profiles.reduce((s, p) => s + (p.montant_vendu || 0), 0),
   }, ...profiles];
+
+  renderTypeBreakdown(profiles);
 
   document.getElementById('profileTabs').innerHTML = all.map(p => `
     <button class="ptab ${p.forfait === activeProfile ? 'active' : ''}"
@@ -200,7 +204,21 @@ function updateProfileStats(p) {
     <div class="pstat"><span class="dot dot-green"></span>Restants : <strong>${p.total - p.vendus}</strong></div>
     <div class="pstat"><span class="dot dot-red"></span>Vendus : <strong>${p.vendus}</strong></div>
     <div class="pstat"><span class="dot dot-orange"></span>Montant restant : <strong>${Number(p.montant_restant).toLocaleString('fr-FR')} FCFA</strong></div>
+    <div class="pstat"><span class="dot dot-blue"></span>Montant vendu : <strong>${Number(p.montant_vendu || 0).toLocaleString('fr-FR')} FCFA</strong></div>
   `;
+}
+
+// Récap montant par type de ticket (toujours visible)
+function renderTypeBreakdown(profiles) {
+  const el = document.getElementById('typeBreakdown');
+  if (!el) return;
+  if (!profiles.length) { el.innerHTML = ''; return; }
+  el.innerHTML = profiles.map(p => `
+    <div class="type-row">
+      <span class="type-name">Forfait ${p.forfait}</span>
+      <span class="type-cell c-green">${p.total - p.vendus} restants · ${Number(p.montant_restant).toLocaleString('fr-FR')} F</span>
+      <span class="type-cell c-red">${p.vendus} vendus · ${Number(p.montant_vendu || 0).toLocaleString('fr-FR')} F</span>
+    </div>`).join('');
 }
 
 function switchProfile(forfait, el) {
@@ -209,10 +227,11 @@ function switchProfile(forfait, el) {
   el.classList.add('active');
   loadCoupons();
   fetch('/api/stats').then(r => r.json()).then(data => {
-    const all = [{ forfait:'', total:0, vendus:0, montant_restant:0 }, ...data.by_profile];
+    const all = [{ forfait:'', total:0, vendus:0, montant_restant:0, montant_vendu:0 }, ...data.by_profile];
     all[0].total           = data.by_profile.reduce((s,p) => s+p.total, 0);
     all[0].vendus          = data.by_profile.reduce((s,p) => s+p.vendus, 0);
     all[0].montant_restant = data.by_profile.reduce((s,p) => s+p.montant_restant, 0);
+    all[0].montant_vendu   = data.by_profile.reduce((s,p) => s+(p.montant_vendu||0), 0);
     updateProfileStats(all.find(p => p.forfait === forfait) || all[0]);
   });
 }
@@ -393,6 +412,20 @@ function setupSwipeClose(sheetId, closeFn) {
   }, { passive: true });
 }
 
+// ── SEARCH ────────────────────────────────────────────────────────────────────
+function onSearchInput() {
+  const val = document.getElementById('searchInput').value;
+  document.getElementById('searchClear').classList.toggle('hidden', !val);
+  debouncedLoad();
+}
+function clearSearch() {
+  const inp = document.getElementById('searchInput');
+  inp.value = '';
+  document.getElementById('searchClear').classList.add('hidden');
+  inp.focus();
+  loadCoupons();
+}
+
 // ── FILTER ────────────────────────────────────────────────────────────────────
 function setFilter(vendu, el) {
   activeVendu = vendu;
@@ -421,6 +454,82 @@ function exportRestants() {
   const params = new URLSearchParams({ vendu: '0' });
   if (activeProfile) params.set('forfait', activeProfile);
   window.location.href = '/api/export?' + params;
+}
+
+// ── LOTS D'IMPORT (admin) ──────────────────────────────────────────────────────
+function openBatchModal() {
+  if (!isAdmin) return;
+  document.getElementById('batchOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  loadBatches();
+}
+function closeBatchModal() {
+  document.getElementById('batchOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function handleBatchOverlayClick(e) {
+  if (e.target === document.getElementById('batchOverlay')) closeBatchModal();
+}
+
+function fmtBatch(b) {
+  // b = ISO (2026-07-03T14:20:05) ou date seule (2026-06-28)
+  const d = new Date(b);
+  if (isNaN(d)) return b;
+  const opts = b.length > 10
+    ? { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }
+    : { day:'2-digit', month:'short', year:'numeric' };
+  return d.toLocaleString('fr-FR', opts);
+}
+
+async function loadBatches() {
+  const list = document.getElementById('batchList');
+  list.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:20px">Chargement…</div>';
+  const res  = await fetch('/api/batches');
+  const data = await res.json();
+  if (!data.length) {
+    list.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:20px">Aucun lot.</div>';
+    return;
+  }
+  list.innerHTML = data.map(b => `
+    <div class="batch-item">
+      <div class="batch-head">
+        <div class="batch-date">${fmtBatch(b.batch)}</div>
+        <div class="batch-forfaits">${b.forfaits || ''}</div>
+      </div>
+      <div class="batch-stats">
+        <span><strong>${b.total}</strong> total</span>
+        <span class="c-green"><strong>${b.restants}</strong> restants</span>
+        <span class="c-red"><strong>${b.vendus}</strong> vendus</span>
+      </div>
+      <div class="batch-actions">
+        <button class="btn btn-outline btn-sm" onclick="archiveBatch('${b.batch}', ${b.restants})"
+                ${b.restants ? '' : 'disabled'}>Archiver les restants</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteBatch('${b.batch}', ${b.total})">Supprimer</button>
+      </div>
+    </div>`).join('');
+}
+
+async function archiveBatch(batch, restants) {
+  if (!restants) return;
+  if (!confirm(`Marquer les ${restants} coupon(s) restants de ce lot comme vendus ?\nIls sortiront des « restants » sans apparaître dans les rapports.`)) return;
+  const res  = await fetch(`/api/batches/${encodeURIComponent(batch)}/archive`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) { toast(data.error || 'Erreur', 'error'); return; }
+  toast(`${data.archived} coupon(s) archivé(s)`);
+  await loadBatches();
+  await loadStats();
+  await loadCoupons();
+}
+
+async function deleteBatch(batch, total) {
+  if (!confirm(`Supprimer définitivement les ${total} coupon(s) de ce lot ?\nAction irréversible.`)) return;
+  const res  = await fetch(`/api/batches/${encodeURIComponent(batch)}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) { toast(data.error || 'Erreur', 'error'); return; }
+  toast(`${data.deleted} coupon(s) supprimé(s)`);
+  await loadBatches();
+  await loadStats();
+  await loadCoupons();
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────

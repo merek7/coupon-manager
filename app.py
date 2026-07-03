@@ -118,6 +118,28 @@ def delete_all():
     return jsonify({'ok': True})
 
 
+# ── LOTS D'IMPORT (admin) ─────────────────────────────────────────────────────
+
+@app.route('/api/batches', methods=['GET'])
+@admin_required
+def list_batches():
+    return jsonify(db.get_batches())
+
+
+@app.route('/api/batches/<path:batch>/archive', methods=['POST'])
+@admin_required
+def archive_batch_route(batch):
+    n = db.archive_batch(batch)
+    return jsonify({'ok': True, 'archived': n})
+
+
+@app.route('/api/batches/<path:batch>', methods=['DELETE'])
+@admin_required
+def delete_batch_route(batch):
+    n = db.delete_batch(batch)
+    return jsonify({'ok': True, 'deleted': n})
+
+
 # ── STATS (public) ────────────────────────────────────────────────────────────
 
 @app.route('/api/stats')
